@@ -1,0 +1,27 @@
+name: "Cross-Cultural Customer Support Escalation"
+version: "1.0.0"
+description: "A real-world environment simulating a multilingual customer support platform where an AI agent categorizes tickets, queries a backend mock database, searches a semantic knowledge base, and drafts appropriate resolutions or escalations."
+
+author: "Harshith Kumar"
+
+tasks:
+  - name: "easy"
+    description: "Standard English classification. Agent reads a password reset ticket and categorizes it correctly."
+    difficulty: "easy"
+  - name: "medium"
+    description: "DB Reasoning and Standard Reply. Agent queries database to identify broken hardware order and replies with standard refund policy."
+    difficulty: "medium"
+  - name: "hard"
+    description: "Multi-turn Japanese Escalation. Agent handles API 500 issues for a Japanese enterprise client, searches KB for bug ID, escalates properly via Kaizen method, and apologizes formally using Japanese Keigo."
+    difficulty: "hard"
+
+entrypoint:
+  type: "http"
+  url: "/"
+
+metadata:
+  tags:
+    - nlp
+    - customer_support
+    - multilingual
+    - decision_making

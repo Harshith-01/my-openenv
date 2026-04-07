@@ -1,0 +1,40 @@
+# Python cache and virtual environments
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Tooling artifacts
+.pytest_cache/
+.mypy_cache/
+ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local environment and secrets
+.env
+.env.*
+.envrc
+
+# Local runtime outputs
+*.log
+logs/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+*.tmp
+*.bak
+
+# Keep UI assets tracked for the hackathon demo
+!static/
+!static/**
