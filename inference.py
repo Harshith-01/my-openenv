@@ -14,6 +14,7 @@ MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = os.getenv("SUPPORT_ENV_BENCHMARK", "support_env")
 MAX_STEPS = 8
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.9"))
+STRICT_MIN_SCORE = 0.01
 
 def run_inference(task_name: str):
     if not API_KEY:
@@ -86,7 +87,7 @@ def run_inference(task_name: str):
             
         print(f"[STEP] step={step} action={action_str} reward={reward:.2f} done={str(done).lower()} error={error_msg}")
 
-    final_score = rewards[-1] if rewards else 0.0
+    final_score = rewards[-1] if rewards else STRICT_MIN_SCORE
     success = final_score >= SUCCESS_SCORE_THRESHOLD
     rewards_str = ",".join([f"{r:.2f}" for r in rewards])
     print(f"[END] success={str(success).lower()} steps={step} score={final_score:.2f} rewards={rewards_str}")

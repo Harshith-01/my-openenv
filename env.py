@@ -26,6 +26,9 @@ SUSPICIOUS_PAYLOAD_PATTERNS = (
     "curl ",
 )
 
+STRICT_MIN_SCORE = 0.01
+STRICT_MAX_SCORE = 0.99
+
 class SupportEnv:
     """
     OpenEnv-compatible environment for Multi-lingual Support Ticket Escalation.
@@ -46,6 +49,11 @@ class SupportEnv:
         ).lower()
         return any(pattern in payload for pattern in SUSPICIOUS_PAYLOAD_PATTERNS)
 
+    def _to_open_interval_score(self, value: float) -> float:
+        """Convert any score in [0, 1] to a strict open interval (0, 1)."""
+        clamped = max(0.0, min(1.0, float(value)))
+        return STRICT_MIN_SCORE + clamped * (STRICT_MAX_SCORE - STRICT_MIN_SCORE)
+
     def reset(self, task_name: str = "easy") -> Observation:
         task_def = get_task(task_name)
         obs = Observation(
@@ -61,7 +69,7 @@ class SupportEnv:
             observation=obs,
             step_count=0,
             done=False,
-            reward=0.0
+            reward=STRICT_MIN_SCORE
         )
         return obs
 
@@ -162,7 +170,8 @@ class SupportEnv:
         self._state.observation.ticket_history.append({"role": "system", "content": last_result})
 
         # Calculate reward
-        reward = max(0.0, min(1.0, float(self._compute_reward()) - security_penalty))
+        raw_reward = max(0.0, min(1.0, float(self._compute_reward()) - security_penalty))
+        reward = self._to_open_interval_score(raw_reward)
         self._state.reward = reward
         self._state.done = done
 

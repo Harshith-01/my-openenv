@@ -110,9 +110,9 @@ The script prints strict structured logs in this format:
 - [END] success=<true|false> steps=<n> score=<0.00-1.00> rewards=<r1,r2,...>
 
 ## Baseline Scores (Deterministic grading)
-- **Easy**: 1.0 (Task completed perfectly using deterministic checks)
-- **Medium**: 1.0 (DB queried successfully, serial found and included in response)
-- **Hard**: 1.0 (KB searched, escalated with bug ID, drafted formal Japanese Keigo response)
+- **Easy**: 0.99 (Task completed perfectly using deterministic checks)
+- **Medium**: 0.99 (DB queried successfully, serial found and included in response)
+- **Hard**: 0.99 (KB searched, escalated with bug ID, drafted formal Japanese Keigo response)
 
 ## Pre-Submission Checklist
 1. `openenv validate` passes.
