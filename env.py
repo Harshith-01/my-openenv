@@ -26,8 +26,17 @@ SUSPICIOUS_PAYLOAD_PATTERNS = (
     "curl ",
 )
 
+MAX_STEPS = 8
+INVALID_ACTION_PENALTY = 0.08
+REPEATED_ACTION_PENALTY = 0.05
 STRICT_MIN_SCORE = 0.01
 STRICT_MAX_SCORE = 0.99
+TASK_COMPLETION_THRESHOLDS = {
+    "easy": 0.92,
+    "medium": 0.9,
+    "hard": 0.9,
+}
+
 
 class SupportEnv:
     """
@@ -50,9 +59,28 @@ class SupportEnv:
         return any(pattern in payload for pattern in SUSPICIOUS_PAYLOAD_PATTERNS)
 
     def _to_open_interval_score(self, value: float) -> float:
-        """Convert any score in [0, 1] to a strict open interval (0, 1)."""
         clamped = max(0.0, min(1.0, float(value)))
-        return STRICT_MIN_SCORE + clamped * (STRICT_MAX_SCORE - STRICT_MIN_SCORE)
+        if clamped <= 0.0:
+            return STRICT_MIN_SCORE
+        if clamped >= 1.0:
+            return STRICT_MAX_SCORE
+        return clamped
+
+    def _is_repeated_action(self, action: Action) -> bool:
+        history = self._state.observation.ticket_history if self._state else []
+        for event in reversed(history):
+            if event.get("role") == "agent":
+                return (
+                    event.get("action_type") == action.action_type
+                    and event.get("query", "") == (action.query or "")
+                    and event.get("topic", "") == (action.topic or "")
+                    and event.get("category", "") == (action.category or "")
+                    and event.get("message", "") == (action.message or "")
+                    and event.get("language", "") == (action.language or "")
+                    and event.get("engineering_notes", "") == (action.engineering_notes or "")
+                    and event.get("tags", []) == (action.tags or [])
+                )
+        return False
 
     def reset(self, task_name: str = "easy") -> Observation:
         task_def = get_task(task_name)
@@ -73,6 +101,10 @@ class SupportEnv:
         )
         return obs
 
+    def close(self) -> None:
+        """No-op close for inference script compatibility."""
+        return None
+
     def step(self, action: Action) -> Tuple[Observation, float, bool, Dict[str, Any]]:
         if self._state is None:
             raise ValueError("Environment not initialized. Call reset() first.")
@@ -84,9 +116,10 @@ class SupportEnv:
         done = False
         last_action_error = None
         security_violation = False
+        invalid_action = False
+        repeated_action = self._is_repeated_action(action)
         security_penalty = 0.0
         
-        # Log agent's action
         self._state.observation.ticket_history.append({
             "role": "agent",
             "action_type": action.action_type,
@@ -113,7 +146,8 @@ class SupportEnv:
             else:
                 last_result = "DB Search Failed: No query provided."
                 last_action_error = "query_database requires query"
-                
+                invalid_action = True
+
         elif action.action_type == "search_knowledge_base":
             if action.topic:
                 results = knowledge_base.search(action.topic, top_k=1)
@@ -121,7 +155,8 @@ class SupportEnv:
             else:
                 last_result = "KB Search Failed: No topic provided."
                 last_action_error = "search_knowledge_base requires topic"
-                
+                invalid_action = True
+
         elif action.action_type == "categorize_ticket":
             if action.category:
                 self._state.observation.system_category = action.category
@@ -132,21 +167,24 @@ class SupportEnv:
             last_result = f"Ticket categorized as {action.category} with tags {action.tags}"
             if not action.category and not action.tags:
                 last_action_error = "categorize_ticket requires category or tags"
-            
+                invalid_action = True
+
         elif action.action_type == "reply_to_user":
             if action.message and action.language:
                 last_result = f"Sent message to user in {action.language}."
             else:
                 last_result = "Reply failed: message or language missing."
                 last_action_error = "reply_to_user requires message and language"
-            
+                invalid_action = True
+
         elif action.action_type == "escalate_ticket":
             if action.engineering_notes:
                 last_result = f"Ticket escalated to engineering with notes: {action.engineering_notes}"
             else:
                 last_result = "Escalation failed: engineering notes missing."
                 last_action_error = "escalate_ticket requires engineering_notes"
-            
+                invalid_action = True
+
         elif action.action_type == "end_turn":
             last_result = "Ended turn. Episode finishing."
             done = True
@@ -154,23 +192,34 @@ class SupportEnv:
         else:
             last_result = f"Unknown action type: {action.action_type}"
             last_action_error = f"unknown action type {action.action_type}"
+            invalid_action = True
 
-        # Hard limit to prevent infinite loops (standard in RL envs)
-        if self._state.step_count >= 8:
+        if self._state.step_count >= MAX_STEPS:
             last_result = "Max steps reached. Episode finishing."
             done = True
-            
-        # Optional: Auto-finish if reply or escalate is called (depends on design, let's say reply or escalate finishes episode for simplify)
-        if action.action_type in ["reply_to_user", "escalate_ticket"]:
-            # we'll let it be a multi-turn for hard, so we don't automatically end unless end_turn is called,
-            # or we end after a reply.
-            pass
 
         self._state.observation.last_action_result = last_result
         self._state.observation.ticket_history.append({"role": "system", "content": last_result})
 
-        # Calculate reward
-        raw_reward = max(0.0, min(1.0, float(self._compute_reward()) - security_penalty))
+        raw_reward = float(self._compute_reward())
+        if invalid_action:
+            raw_reward -= INVALID_ACTION_PENALTY
+        if repeated_action:
+            raw_reward -= REPEATED_ACTION_PENALTY
+        raw_reward -= security_penalty
+        raw_reward = max(0.0, min(1.0, raw_reward))
+
+        completion_threshold = TASK_COMPLETION_THRESHOLDS.get(self._state.task_name, 0.9)
+        if (
+            not done
+            and raw_reward >= completion_threshold
+            and action.action_type in {"categorize_ticket", "reply_to_user", "escalate_ticket", "end_turn"}
+        ):
+            done = True
+            completion_note = "Task objective satisfied. Episode finishing."
+            self._state.observation.last_action_result = f"{last_result} {completion_note}"
+            self._state.observation.ticket_history.append({"role": "system", "content": completion_note})
+
         reward = self._to_open_interval_score(raw_reward)
         self._state.reward = reward
         self._state.done = done
@@ -178,6 +227,9 @@ class SupportEnv:
         return self._state.observation, reward, done, {
             "last_action_error": last_action_error,
             "security_violation": security_violation,
+            "invalid_action": invalid_action,
+            "repeated_action": repeated_action,
+            "raw_reward": raw_reward,
         }
 
     def state(self) -> State:
@@ -195,5 +247,3 @@ class SupportEnv:
         elif self._state.task_name == "hard":
             return grade_hard(obs_dict)
         return 0.0
-
-# OpenEnv spec expects an instantiation mechanism, often just exporting the class or instance.

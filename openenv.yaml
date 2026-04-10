@@ -1,6 +1,6 @@
 name: "Cross-Cultural Customer Support Escalation"
-version: "1.0.0"
-description: "A real-world environment simulating a multilingual customer support platform where an AI agent categorizes tickets, queries a backend mock database, searches a semantic knowledge base, and drafts appropriate resolutions or escalations."
+version: "1.1.0"
+description: "A real-world multilingual customer support environment with deterministic open-interval grading, progressive reward shaping, retrieval-augmented troubleshooting, and structured escalation."
 
 author: "Harshith Kumar"
 
@@ -25,3 +25,5 @@ metadata:
     - customer_support
     - multilingual
     - decision_making
+    - rl
+    - safety

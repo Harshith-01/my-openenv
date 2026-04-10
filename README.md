@@ -10,35 +10,44 @@ pinned: false
 
 # Cross-Cultural Customer Support Escalation (OpenEnv)
 
-## Description & Motivation
-This environment simulates a multilingual customer support helpdesk where an AI agent must process, troubleshoot, and escalate technical issues based on a set of logical operations. The agent operates in English and Japanese.
-Multilingual workflow automation is highly sought after by global companies. Demonstrating an AI that can handle both technical troubleshooting (database querying, KB referencing) and regional business etiquette (Japanese Keigo) assesses true frontier model capabilities in practical applications.
+## Description and Motivation
+This environment simulates a real customer support workflow where an agent must triage, investigate, and resolve multilingual technical tickets.
+
+It is designed for realistic enterprise support behavior:
+- English and Japanese ticket handling
+- Structured escalation to engineering
+- Retrieval-augmented support via a semantic knowledge base
+- Deterministic grading with strict open-interval rewards `(0,1)`
 
 ## Action Space
-The agent can invoke the `Action` pydantic model with these `action_type` values:
-- `categorize_ticket` (category, tags)
-- `search_knowledge_base` (topic)
-- `query_database` (query)
-- `reply_to_user` (message, language)
-- `escalate_ticket` (engineering_notes)
-- `end_turn` ()
+The agent uses the `Action` Pydantic model with these `action_type` values:
+- `categorize_ticket` with `category`, `tags`
+- `search_knowledge_base` with `topic`
+- `query_database` with `query`
+- `reply_to_user` with `message`, `language`
+- `escalate_ticket` with `engineering_notes`
+- `end_turn`
 
 ## Observation Space
-At each step, the `Observation` model returns:
-- `current_ticket`: Dict (message, language, priority)
-- `last_action_result`: String providing the feedback loop for the agent.
-- `ticket_history`: List tracking all actions taken and their results.
-- `system_tags`: List
-- `system_category`: String
+The `Observation` model returns:
+- `current_ticket`: active ticket payload (`message`, `language`, `priority`, etc.)
+- `last_action_result`: deterministic feedback from the previous step
+- `ticket_history`: ordered agent/system event trace
+- `system_tags`: tags assigned by the agent
+- `system_category`: category assigned by the agent
 
-## Tasks
-1. **Easy**: `Standard English Classification`. Agent categorizes a password reset email correctly.
-2. **Medium**: `DB Reasoning & Standard Reply`. User complains about a broken GPU. Agent must query DB for the serial number and issue standard refund text.
-3. **Hard**: `Multi-turn Japanese Escalation`. Japanese enterprise client reports an API 500. Agent must search KB to identify the known bug (#ERR-7782), escalate using the Kaizen method, and reply to the user using formal Japanese Keigo (honourifics).
+## Tasks and Difficulty
+1. `easy`: English password-reset ticket triage.
+2. `medium`: Hardware incident requiring DB lookup and a policy-aligned user reply.
+3. `hard`: Japanese enterprise API incident requiring KB lookup, Kaizen-style escalation, and formal Keigo response.
 
-## Setup & Usage Instructions
+## Reward and Grader Design
+- Graders are deterministic and return strict open-interval scores `(0,1)`.
+- Rewards provide partial progress credit throughout the trajectory.
+- Penalties are applied for invalid/redundant actions.
+- Episode completion uses sensible boundaries (explicit end-turn, step limit, or objective completion threshold).
 
-### Create and Activate Environment
+## Local Setup
 Windows PowerShell:
 ```powershell
 python -m venv .venv
@@ -53,25 +62,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create your local environment file from the template:
-Windows PowerShell:
-```powershell
-Copy-Item .env.example .env
-```
-
-Linux/macOS:
+## Run Server
 ```bash
-cp .env.example .env
+python server/app.py
 ```
 
-### Run via Docker (Recommended for HF Spaces)
-```bash
-docker build -t openenv-support .
-docker run -p 7860:7860 openenv-support
-```
-The FastAPI instance exposes the endpoints expected by OpenEnv on `http://127.0.0.1:7860/`.
-
-Quick runtime checks:
+Quick smoke checks:
 ```bash
 curl http://127.0.0.1:7860/
 curl -X POST "http://127.0.0.1:7860/reset?task_name=easy"
@@ -79,47 +75,40 @@ curl -X POST "http://127.0.0.1:7860/step" -H "Content-Type: application/json" -d
 curl http://127.0.0.1:7860/state
 ```
 
-### Run Server Locally (without Docker)
+## Docker
 ```bash
-python server/app.py
+docker build -t openenv-support .
+docker run -p 7860:7860 openenv-support
 ```
 
-UI endpoint (if static files exist):
-- `http://127.0.0.1:7860/ui/index.html`
+## Inference Baseline
+Set required variables before running:
+- `API_BASE_URL`
+- `MODEL_NAME`
+- `HF_TOKEN`
+- Optional when using Docker image mode: `LOCAL_IMAGE_NAME`
 
-### Run Inference Baseline
-Windows PowerShell:
-```powershell
-$env:API_BASE_URL="https://router.huggingface.co/v1"
-$env:MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-$env:HF_TOKEN="your-huggingface-token"
+Then run:
+```bash
 python inference.py
 ```
 
-Linux/macOS:
-```bash
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-export HF_TOKEN="your-huggingface-token"
-python inference.py
-```
+The script:
+- uses the OpenAI client for model calls
+- emits strict structured logs (`[START]`, `[STEP]`, `[END]`)
+- includes deterministic fallback actions for robustness if model output is malformed
 
-The script prints strict structured logs in this format:
-- [START] task=<task_name> env=<benchmark> model=<model_name>
-- [STEP] step=<n> action=<action> reward=<0.00> done=<true|false> error=<msg|null>
-- [END] success=<true|false> steps=<n> score=<0.00-1.00> rewards=<r1,r2,...>
+Compliance notes:
+- Defaults are set only for `API_BASE_URL` and `MODEL_NAME`.
+- `HF_TOKEN` has no default and must be set by the runner.
+- `[STEP] error=` prints only `last_action_error` or `null`.
 
-## Baseline Scores (Deterministic grading)
-- **Easy**: 0.99 (Task completed perfectly using deterministic checks)
-- **Medium**: 0.99 (DB queried successfully, serial found and included in response)
-- **Hard**: 0.99 (KB searched, escalated with bug ID, drafted formal Japanese Keigo response)
+## Validation Checklist
+1. `openenv validate` passes
+2. `docker build -t openenv-support .` passes
+3. Endpoints `/`, `/reset`, `/step`, `/state` respond correctly
+4. `inference.py` completes and prints strict evaluator log format
 
-## Pre-Submission Checklist
-1. `openenv validate` passes.
-2. `docker build -t openenv-support .` succeeds.
-3. Docker container responds on `/`, `/reset`, `/step`, `/state`.
-4. `inference.py` emits strict `[START]`, `[STEP]`, `[END]` logs.
-
-Automated helper scripts:
+Helper scripts:
 - PowerShell: `./scripts/check_submission.ps1`
 - Bash: `./scripts/check_submission.sh`
